@@ -1,0 +1,535 @@
+﻿@* Author: Logan Courtrille *@
+@* Date: 2025-04-19 *@
+
+@* Program: TransactionPage (Blazor Component) *@
+@* Description: This Blazor page acts as the main point of sales for the system, it renders all menu items, *@
+@* allows for adding these menu items to a order that can be saved to the database via a confirmation dialog and button *@
+@* additionally allows you to change the quantity of each item before adding to the order as well as the discount rate. *@
+
+@* Inputs: *@
+@* – IJSRuntime for invoking JavaScript confirm and alert dialogs. *@
+@* – Internal database connection details (MySQL) via GetConnectionString(). *@
+@* – SQL query joining Order, OrderItem, Menu, and Transaction tables. *@
+
+@* Processing: *@
+@* – OnInitializedAsync invokes GetMenuDirectlyAsync and GetHighestOrderIdAsync in order to get all menu items, and the next order id *@
+@* – LoadActiveOrders handles loading/error states, executes SQL, and maps results to MenuModel *@
+@* – Renders MenuModel items and stores order requests as TransactionItem Objects *@
+@* – SaveOrderAsync connects to both order tables to save the current order and the order quantities *@
+
+@* Outputs: *@
+@* – Displays active transaction or messages. *@
+@* – Clears order'd items from page upon succesful finalization of order.*@
+
+@page "/transaction"
+@using MauiApp1.Models
+@using MySql.Data.MySqlClient
+@using System.Collections.Generic
+@using System.Threading.Tasks
+@using System
+
+@inject IJSRuntime JSRuntime
+
+
+<h3 class="Main-Title Bold-Text">Transactions Page </h3>
+
+@* Toast in order to show any errors that might occur *@
+@if (showToast)
+{
+	<div class="toast-popup">
+		<p>@errorMessage</p>
+	</div>
+}
+
+@* Popup acts as the confirmation screen *@
+@if (isPopupVisible)
+{
+	<div class="popup-overlay">
+		<div class="popup-box">
+			<h3>Confirm finalization</h3>
+			<p>Do you want to proceed?</p>
+			<div class="popup-actions">
+				<button class="btn btn-success" @onclick="OnYesClicked">Yes</button>
+				<button class="btn btn-secondary" @onclick="OnNoClicked">No</button>
+			</div>
+		</div>
+	</div>
+}
+
+@* ==== Main GUI Starts ==== *@
+<div class="transaction-background">
+	@*==== Top half of left side Begins ====*@
+	<div class="transaction-flex-column">
+		<div class="transaction-check-info-background">
+			@if (transactionItems.Any())
+			{
+				@foreach (TransactionItem transactionItem in transactionItems) @* ==== Shows each item that is in this current transaction ==== *@
+				{
+					<div class="current-check">@transactionItem.name: @transactionItem.totalOrdered	Discount: @transactionItem.discountRate.ToString("F2")% Price/Per: @transactionItem.price.ToString("F2")<br />Total: @transactionItem.baseprice.ToString("F2")</div>
+				} 
+			}
+		</div>
+
+		<div class="transaction-current-amount">
+			@name: @totalOrdered	Discount:@discountPercent.ToString()%	Price/Per: @baseprice.ToString("F2")$	Total Price: @price.ToString("F2")$
+		</div>
+
+		<div class="transaction-check-change-order-type">
+			<button class="transaction-background-color" @onclick="clearList">Cancel order</button>
+			<button class="transaction-background-color" @onclick="ChangeOrderType">@OrderType</button>
+		</div>
+		@*==== Top half of left side Ends ====*@
+		@*==== Bottom half of left side Begins ====*@
+		<div class="transaction-check-bottom-column">
+			<div class="transaction-check-submit-button">
+				<button class="transaction-add-to-check-button" @onclick="addToCheck">Add to check</button>
+				<div class="total-cost-display">
+					Total cost: @TotalPrice$
+				</div>
+				<button class="finalize-order-button" @onclick="finalize"> finalize order </button>
+			</div>
+
+			@*==== Keypad Begins ====*@
+			<div class="transaction-check-numbers-pad">
+				<div class="transaction-numpad-row">
+					<button class="numpad-button" @onclick="() => adjustTotalVariable(1)">1</button>
+					<button class="numpad-button" @onclick="() => adjustTotalVariable(2)">2</button>
+					<button class="numpad-button" @onclick="() => adjustTotalVariable(3)">3</button>
+
+				</div>
+				<div class="transaction-numpad-row">
+					<button class="numpad-button" @onclick="() => adjustTotalVariable(4)">4</button>
+					<button class="numpad-button" @onclick="() => adjustTotalVariable(5)">5</button>
+					<button class="numpad-button" @onclick="() => adjustTotalVariable(6)">6</button>
+
+				</div>
+				<div class="transaction-numpad-row">
+					<button class="numpad-button" @onclick="() => adjustTotalVariable(7)">7</button>
+					<button class="numpad-button" @onclick="() => adjustTotalVariable(8)">8</button>
+					<button class="numpad-button" @onclick="() => adjustTotalVariable(9)">9</button>
+
+				</div>
+				<div class="transaction-numpad-row">
+					<button class="numpad-button invisible">.</button>
+					<button class="numpad-button" @onclick="() => adjustTotalVariable(0)">0</button>
+					<button class="numpad-button invisible"></button>
+				</div>
+			</div>
+			@*==== Keypad Ends ====*@
+
+			@*==== Changing between quantity and discount % Begins ====*@
+			<div class="transaction-check-discount-quantity">
+				<button class=@getButtonClass(1) @onclick="() => changeOperation(1)">Qty</button>
+				<button class=@getButtonClass(2) @onclick="() => changeOperation(2)"> %Disc</button>
+				<button class="qty-button del_button" @onclick="() => adjustTotalVariable(-1)">del</button>
+			</div>
+			@*==== Changing between quantity and discount % Ends ====*@
+		</div>
+	</div>
+	@*==== Bottom half of left side Ends ====*@
+
+	@*==== Right side begins ====*@
+	@*==== Menu Item's are stored within this div, goes 3 per row and overflows into a scroll. ====*@
+	<div class="transaction-flex-column">
+		<div class="transaction-add-to-background">
+			<div class="transaction-add-to-flex">
+				@foreach (MenuModel menuItem in menuItems)
+				{
+					<button class=@getButtonMenu(get_ID(menuItem)) @onclick="() => menuItemChange(menuItem)">
+						@get_name(menuItem)<br />@get_type(menuItem)<br />@get_price(menuItem) $
+					</button>
+				}
+			</div>
+		</div>
+	</div>
+</div>
+
+@code {
+	// Lists
+	private List<string> orderTypes = new List<string> { "Dine in", "Take out", "Online" };
+	private List<MenuModel> menuItems = new List<MenuModel>();
+	private List<TransactionItem> transactionItems = new List<TransactionItem>();
+
+	// Variable storage for transaction Items, is used to get info for current item being added
+	private int id = 0;
+	private string name = "";
+	private int totalOrdered = 0;
+	private double baseprice = 0;
+	private double price = 0;
+	private int discountPercent = 0;
+	private double TotalPrice = 0;
+
+	// Various other variables that have differing uses
+	private string errorMessage = string.Empty;
+	private bool decimalon = false;
+	private bool showToast = false;
+	private bool isPopupVisible = false;
+	private int activeButton = 1;
+	private int currentAdjustingOperation = 1;
+	private int activeMenuButton = -1;
+	private string OrderType = "bad"; // Defines what the order type will default SHOULD only be :{"ONLINE" "DINE IN" "TAKE OUT" } 
+								     //but does fix itself automatically with the orderTypes List
+	private int orderNum = 0; 
+
+	private string GetConnectionString()
+	{
+		string server = "localhost";
+		string port = "3306";
+		string database = "test2db"; // Replace with your desired database.
+		string user = "root"; // Replace with your desired user
+		string password = "password"; //Replace with your setup password
+		return ($"Server={server};Port={port};Database={database};Uid={user};Pwd={password};");
+
+	}
+
+	protected override async Task OnInitializedAsync()
+	{
+		menuItems = await GetMenuDirectlyAsync();
+		orderNum = await GetHighestOrderIdAsync();
+		orderNum++; //To avoid UNIQUE conflicts
+	}
+
+	private void ShowPopup()
+	{
+		isPopupVisible = true;
+	}
+
+	private void OnYesClicked()
+	{
+		finalizeFinish();
+		isPopupVisible = false;
+	}
+
+	private void ChangeOrderType()
+	{
+		int i = orderTypes.IndexOf(OrderType);
+		if (i + 1 > orderTypes.Count - 1)
+		{
+			OrderType = orderTypes.ElementAt(0);
+		}
+		else
+		{
+			OrderType = orderTypes.ElementAt(i+1);
+		}
+	}
+
+	private void OnNoClicked() { isPopupVisible = false; }
+
+	private async void ShowToast()
+	{
+		showToast = true;
+		StateHasChanged(); 
+		await Task.Delay(3000);
+		showToast = false;
+		StateHasChanged(); 
+		errorMessage = string.Empty;
+	}
+
+	private void clearList()
+	{
+		transactionItems.Clear();
+		TotalPrice = 0;
+	}
+
+	void finalize() { ShowPopup(); }
+
+	private async void finalizeFinish()
+	{
+		if (transactionItems.Any()) 
+		{
+			await SaveOrderAsync(orderNum, OrderType, null, 0, transactionItems);
+		}
+		else
+		{
+			errorMessage = "No Items in transaction!";
+			ShowToast();
+		}
+		clearList();
+	}
+
+	string getButtonClass(int buttonNumber)
+	{
+		return activeButton == buttonNumber ? "btn-selected" + " qty-button" : "btn-default" + " qty-button";
+	}
+
+	string getButtonMenu(int buttonNumber)
+	{
+		return activeMenuButton == buttonNumber ? "btn-selected" + " transaction-menu-item" : "btn-default" + " transaction-menu-item";
+	}
+
+
+	private void adjustTotalVariable(int amount)
+	{
+		if (currentAdjustingOperation == 1)
+		{
+			if (amount == -1)
+			{
+				string totalOrderedString = totalOrdered.ToString();
+				totalOrderedString = totalOrderedString.Remove(totalOrderedString.Length - 1, 1);
+
+				if (totalOrderedString == "")
+				{
+					totalOrdered = 0;
+				}
+				else
+				{
+					totalOrdered = int.Parse(totalOrderedString);
+				}
+			}
+			else if (amount == 0)
+			{
+				totalOrdered = totalOrdered * 10;
+			}
+			else
+			{
+				if(totalOrdered == 0)
+				{
+					totalOrdered = amount;
+				} else
+				{
+					string totalOrderedString = totalOrdered.ToString();
+					totalOrderedString = totalOrderedString + amount.ToString();
+					totalOrdered = int.Parse(totalOrderedString);
+				}
+			}
+		}
+		else if (currentAdjustingOperation == 2)
+		{
+			if (amount == -1)
+			{
+				string discountPercentString = discountPercent.ToString();
+				discountPercentString = discountPercentString.Remove(discountPercentString.Length - 1, 1);
+
+				if (discountPercentString == "")
+				{
+					discountPercent = 0;
+				}
+				else
+				{
+					discountPercent = int.Parse(discountPercentString);
+				}
+
+			}
+			else if (amount == 0)
+			{
+				discountPercent = discountPercent * 10;
+			}
+			else
+			{
+				if (discountPercent == 0)
+				{
+					discountPercent = amount;
+				}
+				else
+				{
+					string discountPercentString = discountPercent.ToString();
+					discountPercentString = discountPercentString + amount.ToString();
+					discountPercent = int.Parse(discountPercentString);
+				}
+			}
+		}
+		price = (baseprice * totalOrdered) - ((baseprice*totalOrdered) * (discountPercent/100));
+	}
+
+
+
+	private void addToCheck()
+	{
+		if(name == "" || totalOrdered == 0)
+		{
+			if(name == "")
+			{
+				errorMessage = "No item selected";
+				ShowToast();
+			}
+			else
+			{
+				errorMessage = "Item cannot have 0 orders";
+				ShowToast();
+			}
+			return;
+		}
+		TotalPrice = Math.Round((price + TotalPrice), 2);
+		transactionItems.Add(new TransactionItem(id, name, totalOrdered, price, discountPercent, baseprice));
+
+		//Resets data for the next item
+		name = "";
+		totalOrdered = 0;
+		baseprice = 0;
+		discountPercent = 0;
+		price = 0;
+		activeMenuButton = -1;
+	}
+
+	private void changeOperation(int num)
+	{
+		currentAdjustingOperation = num;
+		activeButton = num;
+	}
+
+	private void menuItemChange(MenuModel menuItem)
+	{
+		activeMenuButton = menuItem.itemID;
+		baseprice = menuItem.price;
+		name = menuItem.name;
+		id = menuItem.itemID;
+	}
+
+	private string get_name(MenuModel item)
+	{
+		return (item.name);
+	}
+
+	private string get_price(MenuModel item)
+	{
+		double priceReturn = item.price;
+		return (priceReturn.ToString("F2"));
+	}
+
+	private string get_type(MenuModel item)
+	{
+		return (item.itemType);
+	}
+
+	private int get_ID(MenuModel item)
+	{
+		return (item.itemID);
+	}
+
+	private async Task<List<MenuModel>> GetMenuDirectlyAsync()
+	{
+		var menuItems = new List<MenuModel>();
+		string sql = "SELECT item_id, name, price, inventory, item_type, is_alcoholic, season FROM `Menu`";
+		string connectionString = GetConnectionString();
+
+		try
+		{
+			System.Diagnostics.Debug.WriteLine("Attempting to open MySQL connection...");
+			await using var connection = new MySqlConnection(connectionString);
+			await connection.OpenAsync();
+			System.Diagnostics.Debug.WriteLine("MySQL connection opened successfully.");
+
+			await using var command = new MySqlCommand(sql, connection);
+			await using var reader = await command.ExecuteReaderAsync();
+			System.Diagnostics.Debug.WriteLine("SQL command executed. Reading data...");
+
+			int rowCount = 0;
+			while (await reader.ReadAsync())
+			{
+				rowCount++;
+				menuItems.Add(new MenuModel
+					{
+						itemID = reader["item_id"] != DBNull.Value ? Convert.ToInt32(reader["item_id"]) : 0,
+						name = reader["name"]?.ToString() ?? "",
+						price = reader["price"] != DBNull.Value ? Convert.ToDouble(reader["price"]) : 0,
+						inventoryAmnt = reader["inventory"] != DBNull.Value ? Convert.ToInt32(reader["inventory"]) : 0,
+						itemType = reader["item_type"]?.ToString() ?? "",
+						isAlcholic = reader["is_alcoholic"] != DBNull.Value ? Convert.ToInt32(reader["is_alcoholic"]) : 0,
+						season = reader["season"]?.ToString() ?? ""
+					});
+			}
+			System.Diagnostics.Debug.WriteLine($"Finished reading. Found {rowCount} rows.");
+		}
+		catch (MySqlException ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"MySQL Error: {ex.Message}");
+			errorMessage = $"Database connection failed: {ex.Message}";
+			throw new InvalidOperationException($"MySQL error: {ex.Message}", ex);
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"General Error: {ex.Message}");
+			errorMessage = $"General error: {ex.Message}";
+			throw new InvalidOperationException($"Error fetching menu data: {ex.Message}", ex);
+		}
+		return menuItems;
+		// --- End of direct database logic ---
+	}
+
+	private async Task<int> GetHighestOrderIdAsync()
+	{
+		int highestOrderId = 0;
+		string sql = "SELECT MAX(order_id) FROM `Order`";
+
+		string connectionString = GetConnectionString();
+
+		try
+		{
+			await using var connection = new MySqlConnection(connectionString);
+			await connection.OpenAsync();
+			await using var command = new MySqlCommand(sql, connection);
+
+			var result = await command.ExecuteScalarAsync();
+			if (result != DBNull.Value)
+			{
+				highestOrderId = Convert.ToInt32(result);
+			}
+
+			System.Diagnostics.Debug.WriteLine($"Highest Order ID: {highestOrderId}");
+		}
+		catch (MySqlException ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"MySQL Error: {ex.Message}");
+			errorMessage = "Failed to retrieve highest order ID.";
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"General Error: {ex.Message}");
+			errorMessage = "Unexpected error occurred.";
+		}
+
+		return highestOrderId;
+	}
+
+	private async Task SaveOrderAsync(int orderId, string orderType, int? tableId, int? isServed,List<TransactionItem> transactionItems)
+	{
+		string connectionString = GetConnectionString();
+
+		try
+		{
+			// Step 1: Save the order to the "Order" table
+			string orderSql = @"
+            INSERT INTO `Order` (order_id, order_type, table_id, is_served)
+            VALUES (@orderId, @orderType, @tableId, @isServed);";
+
+			await using var connection = new MySqlConnection(connectionString);
+			await connection.OpenAsync();
+
+			await using var command = new MySqlCommand(orderSql, connection);
+			command.Parameters.AddWithValue("@orderId", orderId);
+			command.Parameters.AddWithValue("@orderType", orderType);
+			command.Parameters.AddWithValue("@tableId", tableId.HasValue ? (object)tableId.Value : DBNull.Value);
+			command.Parameters.AddWithValue("@isServed", isServed.HasValue? (object)isServed.Value : DBNull.Value);
+
+			await command.ExecuteNonQueryAsync();
+			System.Diagnostics.Debug.WriteLine($"Order saved: Order ID {orderId}");
+
+			// Step 2: Save the order items to the "OrderItem" table
+			foreach(TransactionItem transactionItem in transactionItems)
+			{
+				string orderItemSql = @"
+                INSERT INTO `Orderitem` (order_id, item_id, quantity)
+                VALUES (@orderId, @itemId, @quantity);";
+
+				await using var itemCommand = new MySqlCommand(orderItemSql, connection);
+				itemCommand.Parameters.AddWithValue("@orderId", orderId);
+				itemCommand.Parameters.AddWithValue("@itemId", transactionItem.id);
+				itemCommand.Parameters.AddWithValue("@quantity", transactionItem.totalOrdered);
+
+				await itemCommand.ExecuteNonQueryAsync();
+			}
+		}
+		catch (MySqlException ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"MySQL Error: {ex.Message}");
+			errorMessage = "Failed to save the order due to a database error.";
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"General Error: {ex.Message}");
+			errorMessage = "An unexpected error occurred while saving the order.";
+		}
+	}
+
+
+}

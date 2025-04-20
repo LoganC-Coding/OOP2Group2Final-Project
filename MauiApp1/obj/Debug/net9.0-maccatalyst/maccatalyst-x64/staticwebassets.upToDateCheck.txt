@@ -1,0 +1,8 @@
+C:\Users\tinke\Downloads\MauiApp1\MauiApp1\MauiApp1\wwwroot\css\app.css
+C:\Users\tinke\Downloads\MauiApp1\MauiApp1\MauiApp1\wwwroot\css\bootstrap\bootstrap.min.css.map
+C:\Users\tinke\Downloads\MauiApp1\MauiApp1\MauiApp1\wwwroot\index.html
+C:\Users\tinke\Downloads\MauiApp1\MauiApp1\MauiApp1\wwwroot\css\bootstrap\bootstrap.min.css
+wwwroot\css\app.css
+wwwroot\css\bootstrap\bootstrap.min.css
+wwwroot\css\bootstrap\bootstrap.min.css.map
+wwwroot\index.html

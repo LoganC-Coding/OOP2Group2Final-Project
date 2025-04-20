@@ -1,0 +1,8 @@
+C:\Users\tinke\Documents\GitHub\OOP2Group2Final-Project\MauiApp1\wwwroot\css\app.css
+C:\Users\tinke\Documents\GitHub\OOP2Group2Final-Project\MauiApp1\wwwroot\css\bootstrap\bootstrap.min.css.map
+C:\Users\tinke\Documents\GitHub\OOP2Group2Final-Project\MauiApp1\wwwroot\index.html
+C:\Users\tinke\Documents\GitHub\OOP2Group2Final-Project\MauiApp1\wwwroot\css\bootstrap\bootstrap.min.css
+wwwroot\css\app.css
+wwwroot\css\bootstrap\bootstrap.min.css
+wwwroot\css\bootstrap\bootstrap.min.css.map
+wwwroot\index.html
