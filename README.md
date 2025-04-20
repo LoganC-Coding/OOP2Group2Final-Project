@@ -28,6 +28,7 @@ The application currently focuses on two main areas:
 *   **Active Order View (`OrderDisplayPage.razor`):** Card-based display of orders fetched from the database that haven't been finalized (no transaction record). Includes status indicators and item lists.
 *   **Finish Order Functionality:** Button on served orders to remove them from the active view and delete corresponding records from the database (Order, OrderItem, Transaction).
 *   **Database Interaction:** Uses MySqlConnector to fetch and manipulate data from a MySQL database based on the defined ERD.
+*   **Transaction Functionality:** Contains methods for three types of orders: dine-in, takeout and online. Calculates the total amount to be payed, including additional fees.
 
 ## Technology Stack
 
